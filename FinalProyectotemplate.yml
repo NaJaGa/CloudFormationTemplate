@@ -203,6 +203,54 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId:
         Ref: NATGateway
+
+  LoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: MyLoadBalancer
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref WebSecurityGroup
+      Scheme: internet-facing
+
+  MyTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: MyTargetGroup
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckPath: /index.html
+      HealthCheckPort: 80
+
+  MyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: My Launch Template
+      LaunchTemplateData: 
+        ImageId: LatestAmiId
+        InstanceType: T2.micro
+        KeyName: vockey
+        SecurityGroupIds:
+          - !Ref WebSecurityGroup
+        Monitoring:
+          Enabled: true
+
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MaxSize: 6
+      MinSize: 2
+      DesiredCapacity: 2
+    LaunchTemplate:
+      LaunchTemplateName: MyLaunchTemplate  
+      Version: 1  
+    VPCZoneIdentifier:
+      - !Ref PublicSubnet1
+      - !Ref PublicSubnet2
 Outputs:
   WebServer:
     Value: !GetAtt
