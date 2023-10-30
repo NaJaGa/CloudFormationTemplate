@@ -1,5 +1,16 @@
-AWSTemplateFormatVersion: 2010-09-09
-
+AAWSTemplateFormatVersion: "2010-09-09"
+Description: Proyecto Final
+Parameters:
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+    Type: String
+  KeyName:
+    Description: Name of an existing EC2 KeyPair
+    Type: String 
+  AmazonLinuxAMIID:
+    Type: String
+    Default: ami-067d1e60475437da2
 Resources:
   VPC:
     Type: 'AWS::EC2::VPC'
@@ -8,16 +19,15 @@ Resources:
       Tags:
         - Key: Name
           Value: Lab VPC
-
   InternetGateway:
     Type: 'AWS::EC2::InternetGateway'
-
+    DependsOn:
+      - VPC
   AttachGateway:
     Type: 'AWS::EC2::VPCGatewayAttachment'
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
-
   PublicSubnet1:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -29,7 +39,6 @@ Resources:
       Tags:
         - Key: Name
           Value: Public Subnet 1
-
   PublicSubnet2:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -41,7 +50,6 @@ Resources:
       Tags:
         - Key: Name
           Value: Public Subnet 2
-
   PrivateSubnet1:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -53,7 +61,6 @@ Resources:
       Tags:
         - Key: Name
           Value: Private Subnet 1
-
   PrivateSubnet2:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -65,34 +72,40 @@ Resources:
       Tags:
         - Key: Name
           Value: Private Subnet 2
-
+  RDSSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupName: DB-Subnet-Group
+      DBSubnetGroupDescription: DB Subnet Group
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
   PublicRouteTable:
     Type: 'AWS::EC2::RouteTable'
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: Public Route Table
-
+          Value: Public Route Table        
   PublicRoute:
     Type: 'AWS::EC2::Route'
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
-
+    DependsOn:
+      - VPC
+      - AttachGateway
   PublicSubnet1RouteTableAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     Properties:
       SubnetId: !Ref PublicSubnet1
       RouteTableId: !Ref PublicRouteTable
-
   PublicSubnet2RouteTableAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     Properties:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
-
   PrivateRouteTable:
     Type: 'AWS::EC2::RouteTable'
     Properties:
@@ -100,29 +113,26 @@ Resources:
       Tags:
         - Key: Name
           Value: Private Route Table
-
   PrivateSubnet1RouteTableAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     Properties:
       SubnetId: !Ref PrivateSubnet1
       RouteTableId: !Ref PrivateRouteTable
-
   PrivateSubnet2RouteTableAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     Properties:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable
-
   WebInstance:
     Type: 'AWS::EC2::Instance'
     Properties:
-      ImageId: !Ref AMZN2023LinuxAMIId
+      ImageId: !Ref AmazonLinuxAMIID
       KeyName: !Ref KeyName
       InstanceType: t2.micro
       NetworkInterfaces:
         - DeviceIndex: '0'
           AssociatePublicIpAddress: 'true'
-          SubnetId: !Ref PublicSubnet1
+          SubnetId: !Ref PublicSubnet2
           GroupSet:
             - !Ref WebSecurityGroup
       SourceDestCheck: 'false'
@@ -139,10 +149,9 @@ Resources:
           /usr/bin/systemctl enable httpd
           /usr/bin/systemctl start httpd
           cd /var/www/html
-          wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/CUR-TF-100-ACCLFO-2/lab6-scaling/lab-app.zip
-          unzip lab-app.zip -d /var/www/html/
+          wget https://aws-tc-largeobjects.s3.amazonaws.com/CUR-TF-100-ACCLFO-2/lab5-rds/lab-app-php7.zip
+          unzip lab-app-php7.zip -d /var/www/html/
           chown apache:root /var/www/html/rds.conf.php
-
   WebSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -161,33 +170,10 @@ Resources:
           FromPort: '22'
           ToPort: '22'
           CidrIp: 0.0.0.0/0
-
-  NATGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      SubnetId: !Ref PublicSubnet1
-      AllocationId: !GetAtt
-        - NATGatewayEIP
-        - AllocationId
-
-  NATGatewayEIP:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
-  NATGatewayRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId:
-        Ref: PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId:
-        Ref: NATGateway
-
   DBSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
-      GroupDescription: DB Security Group
+      GroupDescription: Permit access from Web Security Group
       GroupName: DB Security Group
       VpcId: !Ref VPC
       Tags:
@@ -197,14 +183,29 @@ Resources:
         - IpProtocol: tcp
           FromPort: '3306'
           ToPort: '3306'
-          SourceSecurityGroupId: !Ref WebSecurityGroup
-
-  DBsubnetGroup:
-    Type: 'AWS::RDS::DBSubnetGroup'
+          SourceSecurityGroupId: !GetAtt WebSecurityGroup.GroupId      
+  NATGateway:
+    Type: AWS::EC2::NatGateway
     Properties:
-      DBSubnetGroupDescription: Lab DB Subnet Group
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-
-  
+      SubnetId: !Ref PublicSubnet1
+      AllocationId: !GetAtt
+        - NATGatewayEIP
+        - AllocationId
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  NATGatewayRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: NATGateway
+Outputs:
+  WebServer:
+    Value: !GetAtt
+      - WebInstance
+      - PublicIp
+    Description: Public IP address of Web Server
